@@ -1,0 +1,808 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>表格AI建表&录入 · Q1 方案展板 v3.2</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#eceff2;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:#1a1d23}
+button,input,textarea{font:inherit}
+
+.app-root{height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.demo-bar{
+  flex-shrink:0;height:40px;background:#111827;color:#fff;
+  display:flex;align-items:center;padding:0 12px;gap:10px;position:relative;z-index:60;
+}
+.demo-bar .label{font-size:12px;color:#9ca3af}
+.wps-shell{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:#fff}
+.wps-shell iframe{flex:1;width:100%;border:0;display:block;min-height:0;background:#fff;position:relative;z-index:0}
+.wps-shell.tasking iframe{width:calc(100% - 380px)}
+.loading{position:absolute;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#f0f0f0;color:#8a93a3}
+.loading.hide{display:none}
+.spinner{width:24px;height:24px;border:2.5px solid #e2e5ea;border-top-color:#417ff9;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.grid-layer{
+  position:absolute;z-index:5;top:156px;left:0;right:0;bottom:30px;
+  background:#fff;display:none;overflow:hidden;border-top:1px solid #e8eaed;
+}
+.grid-layer.show{display:block}
+.wps-shell.tasking .grid-layer{right:380px}
+.grid-layer.flash::after{
+  content:"";position:absolute;inset:0;pointer-events:none;z-index:3;
+  box-shadow:inset 0 0 0 2px #8e5cf7;animation:fl .9s ease;
+}
+@keyframes fl{0%{background:rgba(241,235,254,.18)}100%{background:transparent}}
+
+.sc-grid{display:grid;grid-template-columns:36px repeat(6,minmax(90px,1fr));align-content:start;background:#fff}
+.sc-h,.sc-c{height:28px;border-right:1px solid #eef0f3;border-bottom:1px solid #eef0f3;font-size:12px;display:flex;align-items:center;padding:0 8px}
+.sc-h{background:#f7f8fa;justify-content:center;color:#6b7280;padding:0}
+.sc-c.head{background:#edf4ff;color:#1e3a8a;font-weight:700}
+.sc-c.typing{outline:2px solid #417ff9;outline-offset:-2px}
+.sc-c.muted{color:#c0c4cc}
+.sc-c.num{justify-content:flex-end}
+.sc-c.hl{background:#fff7ed}
+.book-tag{
+  position:absolute;left:12px;top:8px;z-index:8;display:none;
+  font-size:11px;color:#1e5fc7;background:#edf4ff;border:1px solid #c9dbfb;
+  border-radius:999px;padding:3px 8px;
+}
+.book-tag.show{display:inline-block}
+
+.sheet-bar{
+  position:absolute;left:0;right:0;bottom:0;height:28px;z-index:6;
+  background:#f3f4f6;border-top:1px solid #e5e7eb;display:none;align-items:center;padding:0 8px;gap:4px;
+}
+.sheet-bar.show{display:flex}
+.wps-shell.tasking .sheet-bar{right:380px}
+.stab{height:22px;padding:0 10px;border:1px solid transparent;border-radius:4px 4px 0 0;background:transparent;font-size:12px;color:#6b7280;cursor:pointer}
+.stab.on{background:#fff;border-color:#e5e7eb;border-bottom-color:#fff;color:#111;font-weight:650}
+
+/* 画布原地：发现态轻量条（避开表头行）；预览态再展开 */
+.anchor-card{
+  position:absolute;z-index:20;left:48px;top:68px;width:auto;max-width:460px;
+  background:#fff;border:1px solid #dbe3f0;border-radius:8px;
+  box-shadow:0 6px 18px rgba(20,30,50,.12);display:none;overflow:visible;
+}
+.anchor-card.show{display:block}
+.anchor-card.lite{min-width:0;left:44px;top:72px}
+.anchor-card.wide{width:400px;top:40px;left:48px;overflow:hidden}
+.anchor-card .x{
+  position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  width:20px;height:20px;border:0;border-radius:4px;background:transparent;
+  color:#98a2b3;cursor:pointer;font-size:14px;line-height:20px;z-index:1;padding:0;
+}
+.anchor-card.wide .x{top:8px;transform:none}
+.anchor-card .x:hover{background:#f3f4f6;color:#333}
+.anchor-card .arrow{position:absolute;left:22px;top:-5px;width:10px;height:10px;background:#fff;border-left:1px solid #dbe3f0;border-top:1px solid #dbe3f0;transform:rotate(45deg)}
+.anchor-card.wide .arrow{left:-5px;top:18px;border-top:0;border-bottom:1px solid #dbe3f0;transform:rotate(45deg)}
+.anchor-card .inner{padding:10px 12px}
+.anchor-card.lite .inner{
+  padding:8px 34px 8px 10px;display:flex;align-items:center;gap:0;
+}
+.anchor-card .ai-mark{
+  flex-shrink:0;width:16px;height:16px;border-radius:4px;margin-right:8px;
+  background:linear-gradient(135deg,#7aa2ff,#417ff9);
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.anchor-card .ai-mark svg{width:9px;height:9px;display:block}
+.anchor-card .k{font-size:11px;color:#417ff9;font-weight:700;margin-bottom:4px;padding-right:22px}
+.anchor-card h3{font-size:14px;margin:0;line-height:1.35;padding-right:18px}
+.anchor-card.lite h3{
+  font-size:13px;font-weight:600;padding-right:0;line-height:1.3;
+  white-space:nowrap;color:#1a1d23;margin:0;
+}
+.anchor-card.lite .copy{display:flex;align-items:center;min-width:0;margin-right:20px}
+.anchor-card .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.anchor-card.lite .acts{margin-top:0;margin-right:4px;flex-shrink:0}
+.anchor-card.lite .btn{
+  height:28px;padding:0 12px;font-size:12px;font-weight:500;border-radius:6px;
+}
+.seg{display:flex;gap:6px;margin:10px 0 8px}
+.seg button{height:26px;padding:0 10px;border-radius:999px;border:1px solid #e5e7eb;background:#fff;font-size:12px;color:#4a5160;cursor:pointer}
+.seg button.on{background:#edf4ff;border-color:#b7cdfb;color:#1e5fc7;font-weight:700}
+table.mini{width:100%;border-collapse:collapse;font-size:12px}
+table.mini th,table.mini td{border:1px solid #e6e8ec;padding:5px 6px;text-align:left}
+table.mini th{background:#f7f8fa}
+.preview-cap{font-size:12px;color:#6b7280;margin:0 0 8px;line-height:1.45}
+.preview-kpi{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.preview-kpi .kbox{border:1px solid #e6e8ec;border-radius:8px;padding:10px;background:#fafbfc}
+.preview-kpi .kbox .l{font-size:11px;color:#8a93a3}
+.preview-kpi .kbox .v{font-size:16px;font-weight:700;margin-top:4px;color:#111}
+.preview-kpi .kbox .s{font-size:11px;color:#6b7280;margin-top:2px}
+.mini.sample td{color:#9ca3af}
+
+.btn{height:30px;padding:0 12px;border-radius:6px;border:1px solid #d2d6dd;background:#fff;font-size:12px;cursor:pointer}
+.btn.primary{background:#417ff9;border-color:#417ff9;color:#fff}
+
+.sidebar{
+  position:absolute;top:0;right:0;bottom:0;width:380px;z-index:25;
+  background:#f6f7f9;border-left:1px solid #e1e5ec;display:none;flex-direction:column;
+}
+.sidebar.show{display:flex}
+.sb-hd{height:48px;background:#fff;border-bottom:1px solid #e6e8ec;display:flex;align-items:center;padding:0 14px;flex-shrink:0}
+.sb-hd b{font-size:14px}
+.sb-hd span{margin-left:auto;font-size:11px;color:#8a93a3}
+.sb-body{flex:1;overflow:auto;padding:12px}
+.msg{background:#fff;border:1px solid #e6e8ec;border-radius:10px;padding:12px;margin-bottom:10px}
+.msg .role{font-size:11px;color:#8a93a3;margin-bottom:6px}
+.msg h4{font-size:13px;margin:0 0 6px;line-height:1.35}
+.msg p,.msg li{font-size:12px;color:#4a5160;line-height:1.5}
+.msg ul{margin:0;padding-left:16px}
+.progress{height:6px;background:#e8ecf3;border-radius:99px;overflow:hidden;margin:10px 0}
+.progress>i{display:block;height:100%;width:0;background:#417ff9;border-radius:99px;transition:width .3s ease}
+.rule{border:1px solid #e6e8ec;border-radius:8px;padding:8px 10px;background:#fafbfc;font-size:12px;color:#4a5160;margin-top:8px}
+.rule b{color:#111}
+.inline-act{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:12px}
+.lite-hint{font-size:12px;color:#8a93a3}
+.source-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.source-btn{width:100%;text-align:left;border:1px solid #e6e8ec;border-radius:8px;background:#fff;padding:10px 12px;cursor:pointer}
+.source-btn:hover{border-color:#b7cdfb;background:#f8fbff}
+.source-btn b{display:block;font-size:12px;margin-bottom:2px}
+.source-btn span{font-size:11px;color:#8a93a3}
+
+.composer{flex-shrink:0;background:#fff;border-top:1px solid #e6e8ec;padding:10px 12px 8px;position:relative}
+.composer-box{border:1px solid #d2d6dd;border-radius:10px;padding:8px 10px;background:#fff}
+.composer-tools{display:flex;align-items:center;gap:6px;margin-bottom:6px;position:relative}
+.tk-btn{height:26px;padding:0 8px;border-radius:6px;border:1px solid #d2d6dd;background:#fff;font-size:12px;cursor:pointer}
+.tk-btn:hover,.tk-btn.on{border-color:#417ff9;color:#417ff9;background:#edf4ff}
+.composer-input{width:100%;border:0;outline:0;resize:none;min-height:40px;font-size:13px}
+.composer-input::placeholder{color:#98a2b3}
+.composer-foot{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
+.composer-foot .hint{font-size:11px;color:#98a2b3}
+.send{width:28px;height:28px;border-radius:50%;border:0;background:#417ff9;color:#fff;cursor:pointer}
+.ai-note{text-align:center;font-size:11px;color:#98a2b3;margin-top:6px}
+
+.tk-panel{
+  position:absolute;left:0;bottom:calc(100% + 6px);width:280px;z-index:8;
+  background:#fff;border:1px solid #d2d6dd;border-radius:10px;
+  box-shadow:0 10px 24px rgba(20,30,50,.14);display:none;overflow:hidden;
+}
+.tk-panel.show{display:block}
+.tk-panel .ph{padding:8px 10px;border-bottom:1px solid #eef1f5;font-size:12px;color:#6b7280}
+.tk-item{width:100%;text-align:left;border:0;background:#fff;padding:10px;cursor:pointer}
+.tk-item:hover{background:#f5f8ff}
+.tk-item b{display:block;font-size:12px;margin-bottom:2px}
+.tk-item span{font-size:11px;color:#8a93a3;line-height:1.4}
+.tk-more{width:100%;border:0;border-top:1px solid #eef1f5;background:#fafbfc;padding:8px 10px;font-size:12px;color:#417ff9;cursor:pointer;text-align:left}
+
+.dir-chip{
+  background:#374151;color:#fff;border-radius:999px;padding:6px 12px;font-size:12px;
+  cursor:pointer;border:1px solid #4b5563;
+}
+.dir-chip:hover{background:#4b5563}
+.dir-pop{
+  position:absolute;left:12px;top:36px;z-index:70;width:260px;background:#fff;border:1px solid #d8dee8;
+  border-radius:12px;box-shadow:0 12px 28px rgba(20,30,50,.16);display:none;overflow:hidden;
+}
+.dir-pop.show{display:block}
+.dir-pop .hd{padding:10px 12px;border-bottom:1px solid #eef1f5;font-size:12px;color:#6b7280}
+.dir-pop .hd b{display:block;color:#111;font-size:13px;margin-bottom:2px}
+.dir-item{width:100%;text-align:left;border:0;background:#fff;padding:9px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6}
+.dir-item.on{background:#edf4ff}
+.dir-item .t{font-size:12px;font-weight:650}
+.dir-item .d{font-size:11px;color:#8a93a3;margin-top:2px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:50;background:rgba(17,24,39,.92);color:#fff;font-size:12px;padding:8px 14px;border-radius:999px;display:none}
+.toast.show{display:block}
+</style>
+</head>
+<body>
+<div class="app-root">
+  <div class="demo-bar">
+    <span class="label">演示专用 · 不遮挡画布</span>
+    <button class="dir-chip" id="dirChip" type="button">场景 1/5 · 演示导览 ▾</button>
+    <div class="dir-pop" id="dirPop">
+      <div class="hd"><b>演示导览</b>仅切场景，不是产品界面</div>
+      <div id="dirList"></div>
+    </div>
+  </div>
+<div class="wps-shell" id="wpsShell">
+  <iframe id="wpsFrame" title="WPS 表格真壳"></iframe>
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div style="font-size:14px;font-weight:600;color:#4a5160">正在加载真实 WPS 表格界面…</div>
+  </div>
+
+  <div class="grid-layer" id="gridLayer">
+    <div class="book-tag" id="bookTag"></div>
+    <div class="anchor-card" id="anchorCard">
+      <div class="arrow"></div>
+      <button class="x" id="cardClose" type="button">×</button>
+      <div class="inner" id="cardInner"></div>
+    </div>
+  </div>
+  <div class="sheet-bar" id="sheetBar"></div>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-hd"><b>WPS 灵犀</b><span id="sbStatus">任务执行中</span></div>
+    <div class="sb-body" id="sbBody"></div>
+    <div class="composer">
+      <div class="composer-box">
+        <div class="composer-tools">
+          <button class="tk-btn" id="tkBtn" type="button">做同款</button>
+          <div class="tk-panel" id="tkPanel">
+            <div class="ph" id="tkPh">本工作簿规范</div>
+            <div id="tkList"></div>
+            <button class="tk-more" id="tkMore" type="button">更多工作簿</button>
+          </div>
+        </div>
+        <textarea class="composer-input" id="composerInput" placeholder="继续完善台账，或点「做同款」"></textarea>
+        <div class="composer-foot">
+          <div class="hint">内容由 AI 生成</div>
+          <button class="send" id="sendBtn" type="button">↑</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  var steps=[
+    {title:"发现建表",desc:"空白表头旁轻量提示"},
+    {title:"预览智能台账",desc:"原地预览明细/汇总/看板"},
+    {title:"生成智能台账",desc:"侧栏执行，先落空表结构"},
+    {title:"AI 录入",desc:"选来源后写入明细"},
+    {title:"做同款",desc:"选载体与来源，展示完整生成结果"}
+  ];
+
+  /* 做同款菜单：展示已绑定工作簿及其台账规范 */
+  var memory={
+    current:{
+      id:"cur",
+      book:"费用台账.xlsx",
+      title:"费用智能台账",
+      brief:"本工作簿 · 每月追加 · 科目/部门"
+    },
+    bound:[
+      { id:"b1", book:"库存台账.xlsx", title:"库存智能台账", brief:"已绑定 · 每周追加 · 仓库/SKU" },
+      { id:"b2", book:"项目工时.xlsx", title:"项目智能台账", brief:"已绑定 · 按主键修改 · 项目/成员" }
+    ]
+  };
+
+  var state={
+    index:0,
+    phase:"discover",
+    previewTab:"detail",
+    sheet:"blank",
+    generated:false,
+    filled:false,
+    savedSpec:false,
+    tkScope:"current", // current | bound
+    tkSpec:null,       // 选用的台账规范
+    tkCarrier:null,    // update | newSheets | newBook
+    tkSource:null,     // upload | sheet | bound
+    tkDone:false,      // 做同款已生成结果
+    sheetSet:"main"    // main | clone（本簿新建同款后的表组）
+  };
+
+  var $=function(id){return document.getElementById(id)};
+  function toast(m){var t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(toast._t);toast._t=setTimeout(function(){t.classList.remove("show")},1800)}
+  function setTasking(on){ $("wpsShell").classList.toggle("tasking",!!on); $("sidebar").classList.toggle("show",!!on); }
+  function flash(){var el=$("gridLayer");el.classList.remove("flash");void el.offsetWidth;el.classList.add("flash")}
+  function hideAnchor(){ $("anchorCard").classList.remove("show"); }
+
+  function renderDir(){
+    $("dirChip").textContent="场景 "+(state.index+1)+"/5 · 演示导览 ▾";
+    $("dirList").innerHTML=steps.map(function(s,i){
+      return '<button class="dir-item'+(i===state.index?" on":"")+'" data-i="'+i+'"><div class="t">'+(i+1)+'. '+s.title+'</div><div class="d">'+s.desc+'</div></button>';
+    }).join("");
+  }
+
+  function emptyDetailRows(){
+    return [
+      ["","A","B","C","D","E","F"],
+      ["1","日期","科目","金额","部门","备注",""],
+      ["2","","","","","",""],
+      ["3","","","","","",""],
+      ["4","","","","","",""],
+      ["5","","","","","",""],
+      ["6","","","","","",""],
+      ["7","","","","","",""],
+      ["8","","","","","",""]
+    ];
+  }
+
+  function renderGrid(){
+    $("gridLayer").classList.add("show");
+    // 叠层盖住真壳底表时，始终自绘 Sheet 标签，避免左下角空白
+    $("sheetBar").classList.add("show");
+    var card=$("anchorCard");
+    var tag=$("bookTag");
+    var rows=[];
+    var hlRows=[]; // 行号（数据行，从1表头后算）高亮
+    var isClone=state.sheetSet==="clone" || state.tkCarrier==="newBook" && state.tkDone;
+    var showTongkuanData=state.tkDone && (state.tkCarrier==="update" || isClone || state.sheetSet==="clone");
+
+    if(!state.generated){
+      rows=emptyDetailRows();
+    } else if(state.sheet==="summary"){
+      rows=[["","A","B","C","D","E","F"],["1","科目","本月金额","上月","环比","笔数",""]];
+      if(state.filled || state.tkDone){
+        if(state.tkDone && (state.tkCarrier==="update" || isClone)){
+          rows.push(["2","差旅","3310","2320","+43%","3",""],["3","招待","2040","1280","+59%","2",""],["4","办公","320","320","0%","1",""],["5","合计","5670","3920","+45%","6",""]);
+          hlRows=[2,3,5];
+        } else {
+          rows.push(["2","差旅","2320","2100","+10%","2",""],["3","招待","1280","1500","-15%","1",""],["4","合计","3920","4000","-2%","4",""]);
+        }
+      } else {
+        rows.push(["2","","","","","",""],["3","","","","","",""],["4","","","","","",""]);
+      }
+    } else if(state.sheet==="board"){
+      rows=[["","A","B","C","D","E","F"],["1","指标","当前值","目标","状态","说明",""]];
+      if(state.filled || state.tkDone){
+        if(state.tkDone && (state.tkCarrier==="update" || isClone)){
+          rows.push(["2","本月费用","¥5,670","¥6,000","正常","同款后已同步",""],["3","差旅占比","58%","≤60%","正常","财务口径",""]);
+          hlRows=[2,3];
+        } else {
+          rows.push(["2","本月费用","¥3,920","¥6,000","正常","随明细同步",""],["3","差旅占比","59%","≤60%","正常","财务口径",""]);
+        }
+      } else {
+        rows.push(["2","","","","","",""],["3","","","","","",""]);
+      }
+    } else {
+      if(state.tkDone && state.tkCarrier==="update"){
+        rows=[
+          ["","A","B","C","D","E","F"],
+          ["1","日期","科目","金额","部门","备注","来源"],
+          ["2","01-05","差旅","860","销售部","客户拜访","AI填写"],
+          ["3","01-06","招待","1280","市场部","渠道沟通","AI填写"],
+          ["4","01-09","办公","320","综合部","耗材","AI填写"],
+          ["5","01-15","差旅","1460","销售部","华东拜访","AI填写"],
+          ["6","02-03","差旅","990","销售部","华北拜访","同款追加"],
+          ["7","02-07","招待","760","市场部","活动沟通","同款追加"]
+        ];
+        hlRows=[6,7];
+      } else if(state.tkDone && (state.tkCarrier==="newSheets" || state.tkCarrier==="newBook") && (state.sheetSet==="clone" || state.tkCarrier==="newBook")){
+        rows=[
+          ["","A","B","C","D","E","F"],
+          ["1","日期","科目","金额","部门","备注","来源"],
+          ["2","02-03","差旅","990","销售部","华北拜访","同款生成"],
+          ["3","02-07","招待","760","市场部","活动沟通","同款生成"],
+          ["4","02-11","办公","210","综合部","耗材补充","同款生成"],
+          ["5","02-18","差旅","1280","销售部","华东拜访","同款生成"]
+        ];
+        hlRows=[2,3,4,5];
+      } else if(state.filled){
+        rows=[
+          ["","A","B","C","D","E","F"],
+          ["1","日期","科目","金额","部门","备注","来源"],
+          ["2","01-05","差旅","860","销售部","客户拜访","AI填写"],
+          ["3","01-06","招待","1280","市场部","渠道沟通","AI填写"],
+          ["4","01-09","办公","320","综合部","耗材","AI填写"],
+          ["5","01-15","差旅","1460","销售部","华东拜访","AI填写"]
+        ];
+      } else {
+        rows=emptyDetailRows();
+      }
+    }
+
+    var html='<div class="sc-grid">';
+    rows.forEach(function(r,ri){
+      r.forEach(function(v,ci){
+        if(ci===0||ri===0){html+='<div class="sc-h">'+v+"</div>";return;}
+        var cls=["sc-c"];
+        if(ri===1) cls.push("head");
+        if(!state.generated && ri===1 && ci>=1 && ci<=5) cls.push("typing");
+        if(hlRows.indexOf(ri)>=0) cls.push("hl");
+        if(!v) cls.push("muted");
+        if(/^\d+$/.test(String(v))||/^¥/.test(String(v))||/%$/.test(String(v))) cls.push("num");
+        html+='<div class="'+cls.join(" ")+'">'+(v||"")+"</div>";
+      });
+    });
+    html+="</div>";
+    $("gridLayer").innerHTML=html;
+    if(tag){
+      if(state.tkDone && state.tkCarrier==="newBook"){
+        tag.textContent="新工作簿 · 费用智能台账-同款.xlsx";
+        tag.classList.add("show");
+        $("gridLayer").appendChild(tag);
+      } else {
+        tag.classList.remove("show");
+        $("gridLayer").appendChild(tag);
+      }
+    }
+    if(card) $("gridLayer").appendChild(card);
+
+    if(!state.generated){
+      $("sheetBar").innerHTML=
+        '<button class="stab on" data-sheet="blank" type="button">Sheet1</button>'+
+        '<button class="stab" type="button" title="新建工作表">+</button>';
+    } else if(state.tkDone && state.tkCarrier==="newSheets"){
+      $("sheetBar").innerHTML=
+        '<button class="stab'+(state.sheetSet==="main"&&state.sheet==="detail"?" on":"")+'" data-set="main" data-sheet="detail" type="button">费用明细</button>'+
+        '<button class="stab'+(state.sheetSet==="main"&&state.sheet==="summary"?" on":"")+'" data-set="main" data-sheet="summary" type="button">费用汇总</button>'+
+        '<button class="stab'+(state.sheetSet==="main"&&state.sheet==="board"?" on":"")+'" data-set="main" data-sheet="board" type="button">费用看板</button>'+
+        '<button class="stab'+(state.sheetSet==="clone"&&state.sheet==="detail"?" on":"")+'" data-set="clone" data-sheet="detail" type="button">同款明细</button>'+
+        '<button class="stab'+(state.sheetSet==="clone"&&state.sheet==="summary"?" on":"")+'" data-set="clone" data-sheet="summary" type="button">同款汇总</button>'+
+        '<button class="stab'+(state.sheetSet==="clone"&&state.sheet==="board"?" on":"")+'" data-set="clone" data-sheet="board" type="button">同款看板</button>';
+    } else {
+      $("sheetBar").innerHTML=
+        '<button class="stab'+(state.sheet==="detail"?" on":"")+'" data-sheet="detail" type="button">费用明细</button>'+
+        '<button class="stab'+(state.sheet==="summary"?" on":"")+'" data-sheet="summary" type="button">费用汇总</button>'+
+        '<button class="stab'+(state.sheet==="board"?" on":"")+'" data-sheet="board" type="button">费用看板</button>';
+    }
+  }
+
+  function showDiscover(){
+    var card=$("anchorCard");
+    card.classList.add("show","lite");
+    card.classList.remove("wide");
+    // 轻量提示：落在表头下方，不挡原有表头；带 AI 标识；按识别场景给出台账能力
+    $("cardInner").innerHTML=
+      '<span class="ai-mark" aria-hidden="true">'+
+      '<svg viewBox="0 0 12 12" fill="none"><path d="M6 1.2l1.1 2.6 2.8.3-2.1 1.9.6 2.7L6 7.4 3.6 8.7l.6-2.7-2.1-1.9 2.8-.3L6 1.2z" fill="#fff"/></svg>'+
+      '</span>'+
+      '<div class="copy"><h3>AI 帮你搭建「费用报销」台账</h3></div>'+
+      '<div class="acts"><button class="btn primary" type="button" id="btnPreview">预览</button></div>';
+    $("btnPreview").onclick=function(){ go(1); };
+  }
+
+  function previewBody(t){
+    if(t==="detail"){
+      return '<p class="preview-cap">日常费用逐笔记在这里，后续每月数据也写入此表。</p>'+
+        '<table class="mini sample"><tr><th>日期</th><th>科目</th><th>金额</th><th>部门</th><th>备注</th></tr>'+
+        '<tr><td>01-05</td><td>差旅</td><td>—</td><td>销售部</td><td>客户拜访</td></tr>'+
+        '<tr><td>01-06</td><td>招待</td><td>—</td><td>市场部</td><td>渠道沟通</td></tr></table>';
+    }
+    if(t==="summary"){
+      return '<p class="preview-cap">按科目自动汇总；明细一变，这里跟着更新。</p>'+
+        '<table class="mini sample"><tr><th>科目</th><th>本月金额</th><th>上月</th><th>环比</th></tr>'+
+        '<tr><td>差旅</td><td>—</td><td>—</td><td>—</td></tr>'+
+        '<tr><td>招待</td><td>—</td><td>—</td><td>—</td></tr>'+
+        '<tr><td>合计</td><td>—</td><td>—</td><td>—</td></tr></table>';
+    }
+    return '<p class="preview-cap">打开即可查看关键结果，随明细同步。</p>'+
+      '<div class="preview-kpi">'+
+      '<div class="kbox"><div class="l">本月费用</div><div class="v">—</div><div class="s">目标 ¥6,000</div></div>'+
+      '<div class="kbox"><div class="l">差旅占比</div><div class="v">—</div><div class="s">目标 ≤ 60%</div></div>'+
+      '</div>';
+  }
+
+  function showPreview(){
+    var t=state.previewTab;
+    var card=$("anchorCard");
+    card.classList.add("show","wide");
+    card.classList.remove("lite");
+    // 点预览后再升维到「智能台账」命名
+    $("cardInner").innerHTML=
+      '<div class="k">预览</div><h3>费用智能台账</h3>'+
+      '<div class="seg">'+
+      '<button type="button" data-pt="detail" class="'+(t==="detail"?"on":"")+'">明细</button>'+
+      '<button type="button" data-pt="summary" class="'+(t==="summary"?"on":"")+'">汇总</button>'+
+      '<button type="button" data-pt="board" class="'+(t==="board"?"on":"")+'">看板</button></div>'+
+      previewBody(t)+
+      '<div class="acts"><button class="btn primary" type="button" id="btnConfirmGen">确认生成</button></div>';
+    $("cardInner").querySelectorAll("[data-pt]").forEach(function(b){
+      b.onclick=function(){ state.previewTab=b.getAttribute("data-pt"); showPreview(); };
+    });
+    $("btnConfirmGen").onclick=function(){ startBuildTask(); };
+  }
+
+  function startBuildTask(){
+    state.phase="building";
+    state.index=2;
+    renderDir();
+    hideAnchor();
+    setTasking(true);
+    $("sbStatus").textContent="生成中";
+    $("sbBody").innerHTML=
+      '<div class="msg"><div class="role">任务进行中</div><h4>正在生成费用智能台账</h4>'+
+      '<div class="progress"><i id="prog"></i></div>'+
+      '<ul id="taskSteps"><li>创建明细表…</li></ul></div>';
+    var p=0;
+    var timer=setInterval(function(){
+      p+=25; $("prog").style.width=p+"%";
+      if(p===50) $("taskSteps").innerHTML="<li>明细表已创建</li><li>创建汇总表…</li>";
+      if(p===75) $("taskSteps").innerHTML="<li>明细表已创建</li><li>汇总表已创建</li><li>创建看板…</li>";
+      if(p>=100){
+        clearInterval(timer);
+        state.generated=true; state.filled=false; state.sheet="detail";
+        renderGrid(); flash();
+        showBuiltEmpty();
+      }
+    },260);
+  }
+
+  function showBuiltEmpty(){
+    state.phase="built";
+    state.index=2;
+    renderDir();
+    $("sbStatus").textContent="台账已就绪";
+    $("sbBody").innerHTML=
+      '<div class="msg"><div class="role">已完成</div><h4>费用智能台账已生成</h4>'+
+      '<p>明细暂为空表，可继续录入数据。</p>'+
+      '<div class="inline-act">'+
+      '<span class="lite-hint">选择数据来源</span>'+
+      '<button class="btn primary" type="button" id="btnAiFill">AI 录入</button></div></div>';
+    $("btnAiFill").onclick=function(){ showFillSource(); };
+  }
+
+  function showFillSource(){
+    state.phase="fillSource";
+    state.index=3;
+    renderDir();
+    setTasking(true);
+    hideAnchor();
+    $("sbStatus").textContent="选择来源";
+    $("sbBody").innerHTML=
+      '<div class="msg"><h4>数据从哪来？</h4>'+
+      '<div class="source-list">'+
+      '<button class="source-btn" type="button" data-src="upload"><b>上传文件</b><span>Word / PDF / 表格</span></button>'+
+      '<button class="source-btn" type="button" data-src="sheet"><b>当前工作簿中的表</b><span>选择已有工作表</span></button>'+
+      '<button class="source-btn" type="button" data-src="book"><b>其他工作簿</b><span>从其他文件取数</span></button>'+
+      '</div></div>';
+    $("sbBody").querySelectorAll("[data-src]").forEach(function(b){
+      b.onclick=function(){ runFill(b.getAttribute("data-src")); };
+    });
+  }
+
+  function runFill(src){
+    state.phase="filling";
+    $("sbStatus").textContent="录入中";
+    var srcLabel = src==="upload"?"上传文件": src==="sheet"?"当前工作簿":"其他工作簿";
+    $("sbBody").innerHTML=
+      '<div class="msg"><div class="role">任务进行中</div><h4>正在写入明细</h4>'+
+      '<p>来源：'+srcLabel+'</p>'+
+      '<div class="progress"><i id="prog"></i></div></div>';
+    var p=0;
+    var timer=setInterval(function(){
+      p+=25; $("prog").style.width=p+"%";
+      if(p>=100){
+        clearInterval(timer);
+        state.filled=true; state.savedSpec=true; state.sheet="detail";
+        renderGrid(); flash();
+        showFilledDone();
+      }
+    },240);
+  }
+
+  function showFilledDone(){
+    state.phase="done";
+    state.index=3;
+    renderDir();
+    state.tkSpec=memory.current;
+    $("sbStatus").textContent="已完成";
+    $("sbBody").innerHTML=
+      '<div class="msg"><div class="role">已完成</div><h4>费用数据已写入</h4>'+
+      '<div class="rule"><b>已保存台账规范</b><br>每月追加 · 按科目 / 部门汇总</div>'+
+      '<div class="inline-act">'+
+      '<span class="lite-hint">可按同一规范再建</span>'+
+      '<button class="btn primary" type="button" id="btnTongkuan">做同款</button></div></div>';
+    $("btnTongkuan").onclick=function(){
+      state.tkSpec=memory.current;
+      showTongkuanCarrier();
+    };
+    renderTkPanel();
+  }
+
+  function findSpec(id){
+    if(id==="cur" || id===memory.current.id) return memory.current;
+    return memory.bound.find(function(x){ return x.id===id; }) || memory.current;
+  }
+
+  /* 做同款 Step1：先定生成载体与形式 */
+  function showTongkuanCarrier(){
+    state.phase="tkCarrier";
+    state.index=4;
+    state.tkCarrier=null;
+    renderDir();
+    setTasking(true);
+    $("tkPanel").classList.remove("show");
+    $("tkBtn").classList.remove("on");
+    var spec=state.tkSpec || memory.current;
+    $("sbStatus").textContent="做同款";
+    $("sbBody").innerHTML=
+      '<div class="msg"><h4>同款生成到哪里？</h4>'+
+      '<p style="margin:0 0 8px;font-size:12px;color:#6b7280">将套用「'+spec.title+'」规范</p>'+
+      '<div class="source-list">'+
+      '<button class="source-btn" type="button" data-carrier="update"><b>在当前台账中更新</b><span>按规范追加 / 替换本期数据</span></button>'+
+      '<button class="source-btn" type="button" data-carrier="newSheets"><b>在本工作簿新建同款台账</b><span>新增一套明细 / 汇总 / 看板</span></button>'+
+      '<button class="source-btn" type="button" data-carrier="newBook"><b>新建工作簿生成同款台账</b><span>另存为新的智能台账文件</span></button>'+
+      '</div></div>';
+    $("sbBody").querySelectorAll("[data-carrier]").forEach(function(b){
+      b.onclick=function(){
+        state.tkCarrier=b.getAttribute("data-carrier");
+        showTongkuanSource();
+      };
+    });
+  }
+
+  /* 做同款 Step2：再选内容来源 */
+  function showTongkuanSource(){
+    state.phase="tkSource";
+    var spec=state.tkSpec || memory.current;
+    var carrierMap={
+      update:"当前台账更新",
+      newSheets:"本工作簿新建台账",
+      newBook:"新建工作簿"
+    };
+    $("sbStatus").textContent="选择来源";
+    $("sbBody").innerHTML=
+      '<div class="msg"><h4>内容从哪来？</h4>'+
+      '<p style="margin:0 0 8px;font-size:12px;color:#6b7280">'+spec.title+' · '+carrierMap[state.tkCarrier]+'</p>'+
+      '<div class="source-list">'+
+      '<button class="source-btn" type="button" data-src="upload"><b>上传文件</b><span>Word / PDF / 表格</span></button>'+
+      '<button class="source-btn" type="button" data-src="sheet"><b>当前工作簿中的表</b><span>选择已有工作表</span></button>'+
+      '<button class="source-btn" type="button" data-src="bound"><b>已绑定工作簿</b><span>从绑定文件中取数</span></button>'+
+      '</div>'+
+      '<div class="inline-act" style="justify-content:flex-start;margin-top:10px">'+
+      '<button class="btn" type="button" id="btnBackCarrier">返回上一步</button></div></div>';
+    $("btnBackCarrier").onclick=function(){ showTongkuanCarrier(); };
+    $("sbBody").querySelectorAll("[data-src]").forEach(function(b){
+      b.onclick=function(){
+        state.tkSource=b.getAttribute("data-src");
+        runTongkuanTask();
+      };
+    });
+  }
+
+  function runTongkuanTask(){
+    state.phase="tkRunning";
+    state.tkDone=false;
+    var spec=state.tkSpec || memory.current;
+    var carrierMap={ update:"当前台账更新", newSheets:"本工作簿新建台账", newBook:"新建工作簿" };
+    var srcMap={ upload:"上传文件", sheet:"当前工作簿中的表", bound:"已绑定工作簿" };
+    $("sbStatus").textContent="生成中";
+    $("sbBody").innerHTML=
+      '<div class="msg"><div class="role">任务进行中</div><h4>正在按规范生成同款</h4>'+
+      '<p style="font-size:12px;color:#6b7280;margin:0 0 8px">'+spec.title+' · '+carrierMap[state.tkCarrier]+' · '+srcMap[state.tkSource]+'</p>'+
+      '<div class="progress"><i id="prog"></i></div>'+
+      '<ul id="taskSteps"><li>读取内容来源…</li></ul></div>';
+    var p=0;
+    var timer=setInterval(function(){
+      p+=20; $("prog").style.width=p+"%";
+      if(p===40) $("taskSteps").innerHTML="<li>内容已对齐规范列</li><li>写入明细…</li>";
+      if(p===60){
+        if(state.tkCarrier==="update") $("taskSteps").innerHTML="<li>内容已对齐</li><li>明细已追加</li><li>同步汇总 / 看板…</li>";
+        else if(state.tkCarrier==="newSheets") $("taskSteps").innerHTML="<li>内容已对齐</li><li>已新建同款明细</li><li>生成同款汇总 / 看板…</li>";
+        else $("taskSteps").innerHTML="<li>内容已对齐</li><li>已创建新工作簿</li><li>生成智能台账…</li>";
+      }
+      if(p>=100){
+        clearInterval(timer);
+        state.tkDone=true;
+        state.filled=true;
+        state.generated=true;
+        if(state.tkCarrier==="newSheets"){ state.sheetSet="clone"; state.sheet="detail"; }
+        else if(state.tkCarrier==="newBook"){ state.sheetSet="clone"; state.sheet="detail"; }
+        else { state.sheetSet="main"; state.sheet="detail"; }
+        renderGrid(); flash();
+        showTongkuanDone();
+      }
+    },240);
+  }
+
+  function showTongkuanDone(){
+    state.phase="tkDone";
+    state.index=4;
+    renderDir();
+    var spec=state.tkSpec || memory.current;
+    var title="", detail="";
+    if(state.tkCarrier==="update"){
+      title="当前台账已更新";
+      detail="已按「"+spec.title+"」追加 2 条明细，汇总与看板已同步。橙色行为本次同款写入。";
+    } else if(state.tkCarrier==="newSheets"){
+      title="本工作簿已生成同款台账";
+      detail="已新增「同款明细 / 同款汇总 / 同款看板」，并写入来源数据。可切换底表查看。";
+    } else {
+      title="已新建同款工作簿";
+      detail="已生成「费用智能台账-同款.xlsx」，含明细、汇总、看板，并完成录入。";
+    }
+    $("sbStatus").textContent="已完成";
+    $("sbBody").innerHTML=
+      '<div class="msg"><div class="role">已完成</div><h4>'+title+'</h4>'+
+      '<p>'+detail+'</p>'+
+      '<div class="rule"><b>套用规范</b><br>'+spec.title+' · '+spec.brief+'</div>'+
+      '<div class="inline-act">'+
+      '<button class="btn" type="button" id="btnViewDetail">查看明细</button>'+
+      '<button class="btn" type="button" id="btnViewBoard">查看看板</button>'+
+      '<button class="btn primary" type="button" id="btnTkAgain">再做同款</button></div></div>';
+    $("btnViewDetail").onclick=function(){ state.sheet="detail"; if(state.tkCarrier==="newSheets") state.sheetSet="clone"; renderGrid(); };
+    $("btnViewBoard").onclick=function(){ state.sheet="board"; if(state.tkCarrier==="newSheets") state.sheetSet="clone"; renderGrid(); };
+    $("btnTkAgain").onclick=function(){ state.tkDone=false; showTongkuanCarrier(); };
+  }
+
+  function renderTkPanel(){
+    var list=$("tkList");
+    if(state.tkScope==="current"){
+      $("tkPh").textContent="已绑定工作簿";
+      var cur=memory.current;
+      list.innerHTML=
+        '<button class="tk-item" type="button" data-pick="'+cur.id+'"><b>'+cur.book+'</b><span>'+cur.title+' · '+cur.brief+'</span></button>';
+      $("tkMore").textContent="更多已绑定";
+    } else {
+      $("tkPh").textContent="已绑定工作簿";
+      list.innerHTML=memory.bound.map(function(o){
+        return '<button class="tk-item" type="button" data-pick="'+o.id+'"><b>'+o.book+'</b><span>'+o.title+' · '+o.brief+'</span></button>';
+      }).join("")+
+        '<button class="tk-item" type="button" data-pick="'+memory.current.id+'"><b>'+memory.current.book+'</b><span>'+memory.current.title+' · 本工作簿</span></button>';
+      $("tkMore").textContent="收起";
+    }
+  }
+
+  function go(i){
+    state.index=Math.max(0,Math.min(steps.length-1,i));
+    renderDir();
+    $("tkPanel").classList.remove("show");
+    $("tkBtn").classList.remove("on");
+
+    if(state.index===0){
+      state.phase="discover"; state.generated=false; state.filled=false; state.savedSpec=false; state.sheet="blank";
+      state.tkDone=false; state.tkCarrier=null; state.tkSource=null; state.sheetSet="main";
+      setTasking(false); renderGrid(); showDiscover(); return;
+    }
+    if(state.index===1){
+      state.phase="preview"; state.generated=false; state.sheet="blank";
+      setTasking(false); renderGrid(); showPreview(); return;
+    }
+    if(state.index===2){
+      if(!state.generated) startBuildTask();
+      else { setTasking(true); hideAnchor(); renderGrid(); showBuiltEmpty(); }
+      return;
+    }
+    if(state.index===3){
+      state.generated=true; state.filled=false; state.sheet="detail";
+      setTasking(true); hideAnchor(); renderGrid(); showFillSource(); return;
+    }
+    if(state.index===4){
+      state.generated=true; state.filled=true; state.savedSpec=true; state.sheet="detail";
+      state.tkSpec=memory.current;
+      setTasking(true); hideAnchor(); renderGrid(); showTongkuanCarrier();
+    }
+  }
+
+  $("dirChip").onclick=function(){ $("dirPop").classList.toggle("show"); };
+  $("dirList").addEventListener("click",function(e){
+    var b=e.target.closest("[data-i]"); if(!b) return;
+    $("dirPop").classList.remove("show"); go(+b.getAttribute("data-i"));
+  });
+  $("cardClose").onclick=function(){ hideAnchor(); toast("可稍后继续"); };
+  $("sheetBar").addEventListener("click",function(e){
+    var b=e.target.closest("[data-sheet]"); if(!b) return;
+    state.sheet=b.getAttribute("data-sheet");
+    if(b.getAttribute("data-set")) state.sheetSet=b.getAttribute("data-set");
+    renderGrid();
+  });
+  $("tkBtn").onclick=function(e){
+    e.stopPropagation();
+    if(!state.savedSpec){ toast("先完成一次 AI 录入后，才会保存台账规范"); return; }
+    state.tkScope="current"; renderTkPanel();
+    $("tkPanel").classList.toggle("show");
+    $("tkBtn").classList.toggle("on");
+  };
+  $("tkMore").onclick=function(e){
+    e.stopPropagation();
+    state.tkScope = state.tkScope==="current" ? "bound" : "current";
+    renderTkPanel();
+  };
+  $("tkList").addEventListener("click",function(e){
+    var b=e.target.closest("[data-pick]"); if(!b) return;
+    $("tkPanel").classList.remove("show");
+    $("tkBtn").classList.remove("on");
+    state.tkSpec=findSpec(b.getAttribute("data-pick"));
+    showTongkuanCarrier();
+  });
+  $("sendBtn").onclick=function(){
+    if(/同款/.test($("composerInput").value)){
+      state.tkSpec=memory.current;
+      showTongkuanCarrier();
+    } else toast("可点「做同款」或从演示导览切换");
+  };
+  document.addEventListener("click",function(e){
+    if(!e.target.closest(".composer-tools")){
+      $("tkPanel").classList.remove("show");
+      $("tkBtn").classList.remove("on");
+    }
+  });
+
+  $("wpsFrame").src="./shell/WPS表格原型demo_v1.0.html";
+  $("wpsFrame").addEventListener("load",function(){ $("loading").classList.add("hide"); go(0); });
+  setTimeout(function(){ if(!$("loading").classList.contains("hide")){ $("loading").classList.add("hide"); go(0);} },3500);
+})();
+</script>
+</body>
+</html>
+
